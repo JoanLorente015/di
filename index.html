@@ -271,17 +271,46 @@
       }
     }
 
+    // ======================
+    // NÚMEROS EN PALABRAS (por si el reconocimiento de voz
+    // transcribe "cinco" en vez del dígito "5")
+    // ======================
+    const NUMEROS_TEXTO = {
+      "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+      "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10,
+      "once": 11, "doce": 12, "trece": 13, "catorce": 14, "quince": 15,
+      "dieciseis": 16, "dieciséis": 16, "diecisiete": 17, "dieciocho": 18, "diecinueve": 19,
+      "veinte": 20, "veintiuno": 21, "veintidos": 22, "veintidós": 22, "veintitres": 23, "veintitrés": 23,
+      "veinticuatro": 24, "veinticinco": 25, "veintiseis": 26, "veintiséis": 26,
+      "veintisiete": 27, "veintiocho": 28, "veintinueve": 29,
+      "treinta": 30, "cuarenta": 40, "cincuenta": 50, "sesenta": 60,
+      "setenta": 70, "ochenta": 80, "noventa": 90, "cien": 100
+    };
+
     function parsearArticulo(texto) {
-      const match = texto.match(/^(\d+)\s+(.+)/);
-      if (match) {
+      const palabras = texto.trim().split(/\s+/);
+      const primera = (palabras[0] || "").toLowerCase().replace(/[.,]/g, "");
+
+      // Caso 1: empieza con un dígito, ej. "5 tornillos del 8"
+      if (/^\d+$/.test(primera)) {
         return {
-          cantidad: parseInt(match[1]),
-          descripcion: match[2].trim()
+          cantidad: parseInt(primera, 10),
+          descripcion: palabras.slice(1).join(" ").trim()
         };
       }
+
+      // Caso 2: empieza con un número en palabras, ej. "cinco tornillos del 8"
+      if (primera in NUMEROS_TEXTO) {
+        return {
+          cantidad: NUMEROS_TEXTO[primera],
+          descripcion: palabras.slice(1).join(" ").trim()
+        };
+      }
+
+      // Caso 3: no se detectó cantidad, se asume 1
       return {
         cantidad: 1,
-        descripcion: texto
+        descripcion: texto.trim()
       };
     }
 
