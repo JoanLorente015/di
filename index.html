@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Pedido Voz - Ferretería</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #222;
+      padding: 16px;
+      max-width: 480px;
+      margin: 0 auto;
+      min-height: 100vh;
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 12px; text-align: center; }
+    .fase {
+      background: #fff;
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    }
+    .fase.active { border: 2px solid #2563eb; }
+    .fase h2 { font-size: 1rem; color: #555; margin-bottom: 6px; }
+    .valor { font-size: 1.3rem; font-weight: 600; }
+    #lista {
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px;
+      min-height: 120px;
+      margin-bottom: 16px;
+    }
+    .item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+      font-size: 1.05rem;
+    }
+    .item:last-child { border-bottom: none; }
+    .borrar {
+      background: #ef4444;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .botones {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    button {
+      padding: 16px;
+      font-size: 1.15rem;
+      border: none;
+      border-radius: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #btnEscuchar {
+      background: #2563eb;
+      color: white;
+    }
+    #btnEscuchar.escuchando {
+      background: #dc2626;
+      animation: pulse 1.5s infinite;
+    }
+    #btnEnviar {
+      background: #16a34a;
+      color: white;
+    }
+    #btnReiniciar {
+      background: #6b7280;
+      color: white;
+    }
+    .estado {
+      text-align: center;
+      font-size: 0.95rem;
+      color: #666;
+      margin: 8px 0 12px;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.7; }
+      100% { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Pedido por Voz</h1>
+
+  <div class="fase" id="faseNumero">
+    <h2>1. Número de cliente</h2>
+    <div class="valor" id="mostrarNumero">—</div>
+  </div>
+
+  <div class="fase" id="faseNombre">
+    <h2>2. Nombre del cliente (lo dices tú)</h2>
+    <div class="valor" id="mostrarNombre">—</div>
+  </div>
+
+  <div class="fase" id="faseArticulos">
+    <h2>3. Artículos</h2>
+  </div>
+
+  <div id="lista">
+    <div style="color:#999; text-align:center; padding:20px 0;">Aún no hay artículos</div>
+  </div>
+
+  <div class="estado" id="estado">Pulsa "Empezar a escuchar"</div>
+
+  <div class="botones">
+    <button id="btnEscuchar">🎤 Empezar a escuchar</button>
+    <button id="btnEnviar">📤 Enviar por WhatsApp</button>
+    <button id="btnReiniciar">🔄 Nuevo pedido</button>
+  </div>
+
+  <script>
+    // ======================
+    // CONFIGURACIÓN SUPABASE
+    // ======================
+    const SUPABASE_URL = "https://arthqcpqbmsjdhvubwwm.supabase.co/rest/v1/";
+    const SUPABASE_ANON_KEY = "sb_publishable_5oBvA7tRREd958DuNiWRjA_ootjX4Gx";
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ======================
+    // ESTADO DE LA APP
+    // ======================
+    let estado = {
+      codigo: null,
+      etiqueta: null,
+      nombreLibre: null,
+      lista: [],
+      fase: "numero" // numero | nombre | articulos
+    };
+
+    // ======================
+    // RECONOCIMIENTO DE VOZ
+    // ======================
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let escuchando = false;
+
+    if (SpeechRecognition) {
+      recognition = new SpeechRecognition();
+      recognition.lang = "es-ES";
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onresult = (event) => {
+        const texto = event.results[0][0].transcript.trim();
+        console.log("Oído:", texto);
+        procesarTexto(texto);
+      };
+
+      recognition.onend = () => {
+        if (escuchando) {
+          setTimeout(() => recognition.start(), 300);
+        }
+      };
+
+      recognition.onerror = (e) => {
+        console.error("Error de voz:", e.error);
+        document.getElementById("estado").textContent = "Error de micrófono. Intenta de nuevo.";
+      };
+    } else {
+      alert("Tu navegador no soporta reconocimiento de voz. Usa Chrome o Safari.");
+    }
+
+    // ======================
+    // BUSCAR CLIENTE EN SUPABASE
+    // ======================
+    async function buscarCliente(codigo) {
+      const { data, error } = await supabase
+        .from("clientes")
+        .select("etiqueta")
+        .eq("codigo", codigo)
+        .single();
+
+      if (error || !data) {
+        return null;
+      }
+      return data.etiqueta;
+    }
+
+    // ======================
+    // PROCESAR LO QUE DICE
+    // ======================
+    async function procesarTexto(texto) {
+      if (estado.fase === "numero") {
+        const match = texto.match(/\d{3,5}/);
+        if (match) {
+          const codigo = match[0];
+          document.getElementById("estado").textContent = "Buscando cliente...";
+
+          const etiqueta = await buscarCliente(codigo);
+
+          if (etiqueta) {
+            estado.codigo = codigo;
+            estado.etiqueta = etiqueta;
+            estado.fase = "nombre";
+            actualizarPantalla();
+            document.getElementById("estado").textContent = "Número encontrado. Ahora di el nombre del cliente.";
+          } else {
+            document.getElementById("estado").textContent = `No existe el cliente ${codigo}. Di otro número.`;
+          }
+        } else {
+          document.getElementById("estado").textContent = "No detecté un número. Di el código del cliente.";
+        }
+      }
+
+      else if (estado.fase === "nombre") {
+        estado.nombreLibre = texto;
+        estado.fase = "articulos";
+        actualizarPantalla();
+        document.getElementById("estado").textContent = "Nombre guardado. Ya puedes dictar los artículos.";
+      }
+
+      else if (estado.fase === "articulos") {
+        const item = parsearArticulo(texto);
+        estado.lista.push(item);
+        actualizarPantalla();
+        document.getElementById("estado").textContent = "Artículo añadido. Sigue dictando o envía.";
+      }
+    }
+
+    function parsearArticulo(texto) {
+      const match = texto.match(/^(\d+)\s+(.+)/);
+      if (match) {
+        return {
+          cantidad: parseInt(match[1]),
+          descripcion: match[2].trim()
+        };
+      }
+      return {
+        cantidad: 1,
+        descripcion: texto
+      };
+    }
+
+    // ======================
+    // ACTUALIZAR PANTALLA
+    // ======================
+    function actualizarPantalla() {
+      document.getElementById("mostrarNumero").textContent =
+        estado.codigo ? `${estado.codigo} ${estado.etiqueta}` : "—";
+
+      document.getElementById("mostrarNombre").textContent =
+        estado.nombreLibre || "—";
+
+      document.getElementById("faseNumero").classList.toggle("active", estado.fase === "numero");
+      document.getElementById("faseNombre").classList.toggle("active", estado.fase === "nombre");
+      document.getElementById("faseArticulos").classList.toggle("active", estado.fase === "articulos");
+
+      const listaDiv = document.getElementById("lista");
+      if (estado.lista.length === 0) {
+        listaDiv.innerHTML = `<div style="color:#999; text-align:center; padding:20px 0;">Aún no hay artículos</div>`;
+      } else {
+        listaDiv.innerHTML = estado.lista.map((item, i) => `
+          <div class="item">
+            <span>${item.cantidad} ${item.descripcion}</span>
+            <button class="borrar" onclick="borrarItem(${i})">✕</button>
+          </div>
+        `).join("");
+      }
+    }
+
+    function borrarItem(index) {
+      estado.lista.splice(index, 1);
+      actualizarPantalla();
+    }
+
+    // ======================
+    // BOTONES
+    // ======================
+    document.getElementById("btnEscuchar").addEventListener("click", () => {
+      if (!recognition) return;
+
+      if (escuchando) {
+        escuchando = false;
+        recognition.stop();
+        document.getElementById("btnEscuchar").textContent = "🎤 Empezar a escuchar";
+        document.getElementById("btnEscuchar").classList.remove("escuchando");
+        document.getElementById("estado").textContent = "Escucha detenida";
+      } else {
+        escuchando = true;
+        recognition.start();
+        document.getElementById("btnEscuchar").textContent = "⏹ Dejar de escuchar";
+        document.getElementById("btnEscuchar").classList.add("escuchando");
+        document.getElementById("estado").textContent = "Escuchando... habla ahora";
+      }
+    });
+
+    document.getElementById("btnEnviar").addEventListener("click", () => {
+      if (!estado.codigo) {
+        alert("Primero tienes que decir el número de cliente");
+        return;
+      }
+      if (estado.lista.length === 0) {
+        alert("No hay artículos en el pedido");
+        return;
+      }
+
+      let mensaje = `Pedido ${estado.codigo} ${estado.etiqueta}\n`;
+      mensaje += `${estado.nombreLibre || ""}\n\n`;
+      mensaje += estado.lista.map(i => `${i.cantidad} ${i.descripcion}`).join("\n");
+
+      const url = `https://wa.me/?text=${encodeURIComponent(mensaje)}`;
+      window.open(url, "_blank");
+    });
+
+    document.getElementById("btnReiniciar").addEventListener("click", () => {
+      estado = {
+        codigo: null,
+        etiqueta: null,
+        nombreLibre: null,
+        lista: [],
+        fase: "numero"
+      };
+      actualizarPantalla();
+      document.getElementById("estado").textContent = "Pedido reiniciado. Di el número de cliente.";
+    });
+
+    // Inicial
+    actualizarPantalla();
+  </script>
+</body>
+</html>
