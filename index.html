@@ -73,6 +73,10 @@
       background: #dc2626;
       animation: pulse 1.5s infinite;
     }
+    #btnChatGPT {
+      background: #10a37f;
+      color: white;
+    }
     #btnEnviar {
       background: #16a34a;
       color: white;
@@ -99,7 +103,6 @@
   </style>
 </head>
 <body>
-
   <h1>Pedido por Voz</h1>
 
   <div class="fase" id="faseNumero">
@@ -124,14 +127,14 @@
 
   <div class="botones">
     <button id="btnEscuchar">🎤 Empezar a escuchar</button>
+    <button id="btnChatGPT">✨ Limpiar con ChatGPT</button>
     <button id="btnEnviar">📤 Enviar por WhatsApp</button>
     <button id="btnReiniciar">🔄 Nuevo pedido</button>
   </div>
 
   <script>
     // ======================
-    // CAPTURA DE ERRORES VISIBLE EN PANTALLA
-    // (así puedes ver el fallo en el propio iPhone, sin consola)
+    // CAPTURA DE ERRORES
     // ======================
     function mostrarError(msg) {
       const el = document.getElementById("estado");
@@ -159,7 +162,7 @@
     let supabaseClient = null;
     try {
       if (!window.supabase) {
-        throw new Error("La librería de Supabase no cargó (revisa tu conexión o un bloqueador de contenido en Safari).");
+        throw new Error("La librería de Supabase no cargó");
       }
       supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     } catch (err) {
@@ -167,14 +170,14 @@
     }
 
     // ======================
-    // ESTADO DE LA APP
+    // ESTADO
     // ======================
     let estado = {
       id: null,
       nombre: null,
       nombreLibre: null,
       lista: [],
-      fase: "numero" // numero | nombre | articulos
+      fase: "numero"
     };
 
     // ======================
@@ -198,40 +201,42 @@
 
       recognition.onend = () => {
         if (escuchando) {
-          setTimeout(() => recognition.start(), 300);
+          setTimeout(() => {
+            try { recognition.start(); } catch(e) {}
+          }, 300);
         }
       };
 
       recognition.onerror = (e) => {
         console.error("Error de voz:", e.error);
-        mostrarError("Micrófono: " + e.error);
+        if (e.error === "not-allowed") {
+          mostrarError("Permiso de micrófono denegado");
+        } else {
+          document.getElementById("estado").textContent = "Error micrófono: " + e.error;
+        }
       };
     } else {
-      mostrarError("Tu navegador no soporta reconocimiento de voz. Usa Safari o Chrome actualizados.");
+      mostrarError("Tu navegador no soporta reconocimiento de voz. Usa Safari.");
     }
 
     // ======================
-    // BUSCAR CLIENTE EN SUPABASE
+    // BUSCAR CLIENTE
     // ======================
     async function buscarCliente(codigo) {
-      if (!supabaseClient) {
-        mostrarError("Supabase no está disponible, no se puede buscar el cliente.");
-        return null;
-      }
+      if (!supabaseClient) return null;
+
       const { data, error } = await supabaseClient
         .from("clientes")
         .select("nombre")
         .eq("id", codigo)
         .single();
 
-      if (error || !data) {
-        return null;
-      }
+      if (error || !data) return null;
       return data.nombre;
     }
 
     // ======================
-    // PROCESAR LO QUE DICE
+    // PROCESAR TEXTO
     // ======================
     async function procesarTexto(texto) {
       if (estado.fase === "numero") {
@@ -239,9 +244,7 @@
         if (match) {
           const codigo = match[0];
           document.getElementById("estado").textContent = "Buscando cliente...";
-
           const nombre = await buscarCliente(codigo);
-
           if (nombre) {
             estado.id = codigo;
             estado.nombre = nombre;
@@ -255,14 +258,12 @@
           document.getElementById("estado").textContent = "No detecté un número. Di el código del cliente.";
         }
       }
-
       else if (estado.fase === "nombre") {
         estado.nombreLibre = texto;
         estado.fase = "articulos";
         actualizarPantalla();
         document.getElementById("estado").textContent = "Nombre guardado. Ya puedes dictar los artículos.";
       }
-
       else if (estado.fase === "articulos") {
         const item = parsearArticulo(texto);
         estado.lista.push(item);
@@ -272,17 +273,16 @@
     }
 
     // ======================
-    // NÚMEROS EN PALABRAS (por si el reconocimiento de voz
-    // transcribe "cinco" en vez del dígito "5")
+    // PARSEAR ARTÍCULO (simple)
     // ======================
     const NUMEROS_TEXTO = {
       "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
       "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10,
       "once": 11, "doce": 12, "trece": 13, "catorce": 14, "quince": 15,
       "dieciseis": 16, "dieciséis": 16, "diecisiete": 17, "dieciocho": 18, "diecinueve": 19,
-      "veinte": 20, "veintiuno": 21, "veintidos": 22, "veintidós": 22, "veintitres": 23, "veintitrés": 23,
-      "veinticuatro": 24, "veinticinco": 25, "veintiseis": 26, "veintiséis": 26,
-      "veintisiete": 27, "veintiocho": 28, "veintinueve": 29,
+      "veinte": 20, "veintiuno": 21, "veintidos": 22, "veintidós": 22,
+      "veintitres": 23, "veintitrés": 23, "veinticuatro": 24, "veinticinco": 25,
+      "veintiseis": 26, "veintiséis": 26, "veintisiete": 27, "veintiocho": 28, "veintinueve": 29,
       "treinta": 30, "cuarenta": 40, "cincuenta": 50, "sesenta": 60,
       "setenta": 70, "ochenta": 80, "noventa": 90, "cien": 100
     };
@@ -291,7 +291,6 @@
       const palabras = texto.trim().split(/\s+/);
       const primera = (palabras[0] || "").toLowerCase().replace(/[.,]/g, "");
 
-      // Caso 1: empieza con un dígito, ej. "5 tornillos del 8"
       if (/^\d+$/.test(primera)) {
         return {
           cantidad: parseInt(primera, 10),
@@ -299,7 +298,6 @@
         };
       }
 
-      // Caso 2: empieza con un número en palabras, ej. "cinco tornillos del 8"
       if (primera in NUMEROS_TEXTO) {
         return {
           cantidad: NUMEROS_TEXTO[primera],
@@ -307,7 +305,6 @@
         };
       }
 
-      // Caso 3: no se detectó cantidad, se asume 1
       return {
         cantidad: 1,
         descripcion: texto.trim()
@@ -347,11 +344,21 @@
     }
 
     // ======================
+    // GENERAR TEXTO DEL PEDIDO
+    // ======================
+    function generarTextoPedido() {
+      let texto = `Pedido ${estado.id || ""} ${estado.nombre || ""}\n`;
+      texto += `${estado.nombreLibre || ""}\n\n`;
+      texto += estado.lista.map(i => `${i.cantidad} ${i.descripcion}`).join("\n");
+      return texto.trim();
+    }
+
+    // ======================
     // BOTONES
     // ======================
     document.getElementById("btnEscuchar").addEventListener("click", () => {
       if (!recognition) {
-        mostrarError("El reconocimiento de voz no está disponible en este navegador.");
+        mostrarError("Reconocimiento de voz no disponible");
         return;
       }
 
@@ -366,18 +373,64 @@
         escuchando = true;
         try {
           recognition.start();
+          document.getElementById("btnEscuchar").textContent = "⏹ Dejar de escuchar";
+          document.getElementById("btnEscuchar").classList.add("escuchando");
+          document.getElementById("estado").textContent = "Escuchando... habla ahora";
+          document.getElementById("estado").classList.remove("error");
         } catch (err) {
           mostrarError("No se pudo iniciar el micrófono: " + err.message);
           escuchando = false;
-          return;
         }
-        document.getElementById("btnEscuchar").textContent = "⏹ Dejar de escuchar";
-        document.getElementById("btnEscuchar").classList.add("escuchando");
-        document.getElementById("estado").textContent = "Escuchando... habla ahora";
-        document.getElementById("estado").classList.remove("error");
       }
     });
 
+    // BOTÓN CHATGPT
+    document.getElementById("btnChatGPT").addEventListener("click", async () => {
+      if (!estado.id) {
+        alert("Primero tienes que decir el número de cliente");
+        return;
+      }
+      if (estado.lista.length === 0) {
+        alert("No hay artículos en el pedido");
+        return;
+      }
+
+      const pedidoCrudo = generarTextoPedido();
+
+      const mensajeParaChatGPT = `Limpia y corrige este pedido de ferretería. 
+Devuelve SOLO el pedido limpio, sin explicaciones, en este formato:
+
+Pedido [número] [nombre cliente]
+[nombre libre]
+
+[cantidad] [descripción corregida]
+[cantidad] [descripción corregida]
+...
+
+Corrige errores de voz (ejemplo: "pilas triple a" → "Pilas AAA", "tornillos del ocho" → "tornillos del 8").
+
+Pedido original:
+${pedidoCrudo}`;
+
+      try {
+        await navigator.clipboard.writeText(mensajeParaChatGPT);
+        document.getElementById("estado").textContent = "✅ Texto copiado. Abriendo ChatGPT...";
+        
+        // Intenta abrir la app de ChatGPT
+        window.location.href = "chatgpt://";
+        
+        // Si no tiene la app, después de un momento abrimos la web
+        setTimeout(() => {
+          window.open("https://chatgpt.com", "_blank");
+        }, 800);
+
+      } catch (err) {
+        // Si falla el portapapeles, mostramos el texto para que lo copie manualmente
+        prompt("Copia este texto y pégalo en ChatGPT:", mensajeParaChatGPT);
+      }
+    });
+
+    // BOTÓN WHATSAPP
     document.getElementById("btnEnviar").addEventListener("click", () => {
       if (!estado.id) {
         alert("Primero tienes que decir el número de cliente");
@@ -388,14 +441,12 @@
         return;
       }
 
-      let mensaje = `Pedido ${estado.id} ${estado.nombre}\n`;
-      mensaje += `${estado.nombreLibre || ""}\n\n`;
-      mensaje += estado.lista.map(i => `${i.cantidad} ${i.descripcion}`).join("\n");
-
+      const mensaje = generarTextoPedido();
       const url = `https://wa.me/?text=${encodeURIComponent(mensaje)}`;
       window.open(url, "_blank");
     });
 
+    // BOTÓN REINICIAR
     document.getElementById("btnReiniciar").addEventListener("click", () => {
       estado = {
         id: null,
