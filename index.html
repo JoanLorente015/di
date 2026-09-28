@@ -170,8 +170,8 @@
     // ESTADO DE LA APP
     // ======================
     let estado = {
-      codigo: null,
-      etiqueta: null,
+      id: null,
+      nombre: null,
       nombreLibre: null,
       lista: [],
       fase: "numero" // numero | nombre | articulos
@@ -220,14 +220,14 @@
       }
       const { data, error } = await supabaseClient
         .from("clientes")
-        .select("etiqueta")
-        .eq("codigo", codigo)
+        .select("nombre")
+        .eq("id", codigo)
         .single();
 
       if (error || !data) {
         return null;
       }
-      return data.etiqueta;
+      return data.nombre;
     }
 
     // ======================
@@ -240,11 +240,11 @@
           const codigo = match[0];
           document.getElementById("estado").textContent = "Buscando cliente...";
 
-          const etiqueta = await buscarCliente(codigo);
+          const nombre = await buscarCliente(codigo);
 
-          if (etiqueta) {
-            estado.codigo = codigo;
-            estado.etiqueta = etiqueta;
+          if (nombre) {
+            estado.id = codigo;
+            estado.nombre = nombre;
             estado.fase = "nombre";
             actualizarPantalla();
             document.getElementById("estado").textContent = "Número encontrado. Ahora di el nombre del cliente.";
@@ -290,7 +290,7 @@
     // ======================
     function actualizarPantalla() {
       document.getElementById("mostrarNumero").textContent =
-        estado.codigo ? `${estado.codigo} ${estado.etiqueta}` : "—";
+        estado.id ? `${estado.id} ${estado.nombre}` : "—";
 
       document.getElementById("mostrarNombre").textContent =
         estado.nombreLibre || "—";
@@ -350,7 +350,7 @@
     });
 
     document.getElementById("btnEnviar").addEventListener("click", () => {
-      if (!estado.codigo) {
+      if (!estado.id) {
         alert("Primero tienes que decir el número de cliente");
         return;
       }
@@ -359,7 +359,7 @@
         return;
       }
 
-      let mensaje = `Pedido ${estado.codigo} ${estado.etiqueta}\n`;
+      let mensaje = `Pedido ${estado.id} ${estado.nombre}\n`;
       mensaje += `${estado.nombreLibre || ""}\n\n`;
       mensaje += estado.lista.map(i => `${i.cantidad} ${i.descripcion}`).join("\n");
 
@@ -369,8 +369,8 @@
 
     document.getElementById("btnReiniciar").addEventListener("click", () => {
       estado = {
-        codigo: null,
-        etiqueta: null,
+        id: null,
+        nombre: null,
         nombreLibre: null,
         lista: [],
         fase: "numero"
