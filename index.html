@@ -87,6 +87,10 @@
       color: #666;
       margin: 8px 0 12px;
     }
+    .estado.error {
+      color: #dc2626;
+      font-weight: 600;
+    }
     @keyframes pulse {
       0% { opacity: 1; }
       50% { opacity: 0.7; }
@@ -125,14 +129,42 @@
   </div>
 
   <script>
-    alert("El script se está ejecutando");
+    // ======================
+    // CAPTURA DE ERRORES VISIBLE EN PANTALLA
+    // (así puedes ver el fallo en el propio iPhone, sin consola)
+    // ======================
+    function mostrarError(msg) {
+      const el = document.getElementById("estado");
+      if (el) {
+        el.textContent = "ERROR: " + msg;
+        el.classList.add("error");
+      }
+      console.error(msg);
+    }
+
+    window.addEventListener("error", (e) => {
+      mostrarError(e.message);
+    });
+
+    window.addEventListener("unhandledrejection", (e) => {
+      mostrarError(e.reason && e.reason.message ? e.reason.message : String(e.reason));
+    });
+
     // ======================
     // CONFIGURACIÓN SUPABASE
     // ======================
     const SUPABASE_URL = "https://arthqcpqbmsjdhvubwwm.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFydGhxY3BxYm1zamRodnVid3dtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2MDg3MjcsImV4cCI6MjEwNjE4NDcyN30.D3lklXpb6ueY_TsXBlTJcuVqJx-cJtqVtv1n1leESAA";
 
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    let supabase = null;
+    try {
+      if (!window.supabase) {
+        throw new Error("La librería de Supabase no cargó (revisa tu conexión o un bloqueador de contenido en Safari).");
+      }
+      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } catch (err) {
+      mostrarError(err.message);
+    }
 
     // ======================
     // ESTADO DE LA APP
@@ -172,16 +204,20 @@
 
       recognition.onerror = (e) => {
         console.error("Error de voz:", e.error);
-        document.getElementById("estado").textContent = "Error de micrófono. Intenta de nuevo.";
+        mostrarError("Micrófono: " + e.error);
       };
     } else {
-      alert("Tu navegador no soporta reconocimiento de voz. Usa Chrome o Safari.");
+      mostrarError("Tu navegador no soporta reconocimiento de voz. Usa Safari o Chrome actualizados.");
     }
 
     // ======================
     // BUSCAR CLIENTE EN SUPABASE
     // ======================
     async function buscarCliente(codigo) {
+      if (!supabase) {
+        mostrarError("Supabase no está disponible, no se puede buscar el cliente.");
+        return null;
+      }
       const { data, error } = await supabase
         .from("clientes")
         .select("etiqueta")
@@ -285,7 +321,10 @@
     // BOTONES
     // ======================
     document.getElementById("btnEscuchar").addEventListener("click", () => {
-      if (!recognition) return;
+      if (!recognition) {
+        mostrarError("El reconocimiento de voz no está disponible en este navegador.");
+        return;
+      }
 
       if (escuchando) {
         escuchando = false;
@@ -293,12 +332,20 @@
         document.getElementById("btnEscuchar").textContent = "🎤 Empezar a escuchar";
         document.getElementById("btnEscuchar").classList.remove("escuchando");
         document.getElementById("estado").textContent = "Escucha detenida";
+        document.getElementById("estado").classList.remove("error");
       } else {
         escuchando = true;
-        recognition.start();
+        try {
+          recognition.start();
+        } catch (err) {
+          mostrarError("No se pudo iniciar el micrófono: " + err.message);
+          escuchando = false;
+          return;
+        }
         document.getElementById("btnEscuchar").textContent = "⏹ Dejar de escuchar";
         document.getElementById("btnEscuchar").classList.add("escuchando");
         document.getElementById("estado").textContent = "Escuchando... habla ahora";
+        document.getElementById("estado").classList.remove("error");
       }
     });
 
@@ -330,6 +377,7 @@
       };
       actualizarPantalla();
       document.getElementById("estado").textContent = "Pedido reiniciado. Di el número de cliente.";
+      document.getElementById("estado").classList.remove("error");
     });
 
     // Inicial
