@@ -382,7 +382,7 @@
     // GENERAR TEXTO DEL PEDIDO
     // ======================
     function generarTextoPedido() {
-      let texto = `Pedido ${estado.id || ""} ${estado.nombre || ""}\n`;
+      let texto = `PEDIDO ${estado.id || ""} ${estado.nombre || ""}\n`;
       texto += `${estado.nombreLibre || ""}\n\n`;
       texto += estado.lista.map(i => `${i.cantidad} ${i.descripcion}`).join("\n");
       return texto.trim();
