@@ -73,10 +73,6 @@
       background: #dc2626;
       animation: pulse 1.5s infinite;
     }
-    #btnChatGPT {
-      background: #10a37f;
-      color: white;
-    }
     #btnEnviar {
       background: #16a34a;
       color: white;
@@ -127,7 +123,6 @@
 
   <div class="botones">
     <button id="btnEscuchar">🎤 Empezar a escuchar</button>
-    <button id="btnChatGPT">✨ Limpiar con ChatGPT</button>
     <button id="btnEnviar">📤 Enviar por WhatsApp</button>
     <button id="btnReiniciar">🔄 Nuevo pedido</button>
   </div>
@@ -273,7 +268,7 @@
     }
 
     // ======================
-    // PARSEAR ARTÍCULO (simple)
+    // NÚMEROS EN TEXTO
     // ======================
     const NUMEROS_TEXTO = {
       "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
@@ -287,27 +282,67 @@
       "setenta": 70, "ochenta": 80, "noventa": 90, "cien": 100
     };
 
+    // ======================
+    // LIMPIAR DESCRIPCIÓN
+    // ======================
+    function limpiarDescripcion(texto) {
+      let desc = texto.toLowerCase().trim();
+
+      // --- Pilas AA / AAA ---
+      desc = desc.replace(/\btriple\s*a+\b/gi, "AAA");
+      desc = desc.replace(/\bdoble\s*a+\b/gi, "AA");
+      desc = desc.replace(/\btriple\s*aaa\b/gi, "AAA");
+      desc = desc.replace(/\bdoble\s*aa\b/gi, "AA");
+
+      // --- Convertir metros a milímetros ---
+      // Ejemplos: "2 metros", "2,5 metros", "2.5 m", "2 metros de cable"
+      desc = desc.replace(/(\d+[.,]?\d*)\s*(metros?|m)\b/gi, (match, num) => {
+        const valor = parseFloat(num.replace(",", "."));
+        return (valor * 1000) + " mm";
+      });
+
+      // --- Convertir centímetros a milímetros ---
+      // Ejemplos: "50 cm", "50 centímetros", "12,5 cm"
+      desc = desc.replace(/(\d+[.,]?\d*)\s*(centímetros?|centimetros?|cm)\b/gi, (match, num) => {
+        const valor = parseFloat(num.replace(",", "."));
+        return (valor * 10) + " mm";
+      });
+
+      // Poner en mayúscula la primera letra
+      if (desc.length > 0) {
+        desc = desc.charAt(0).toUpperCase() + desc.slice(1);
+      }
+
+      return desc;
+    }
+
+    // ======================
+    // PARSEAR ARTÍCULO
+    // ======================
     function parsearArticulo(texto) {
       const palabras = texto.trim().split(/\s+/);
       const primera = (palabras[0] || "").toLowerCase().replace(/[.,]/g, "");
 
+      let cantidad = 1;
+      let descripcion = texto.trim();
+
+      // Caso 1: empieza con número (5 tornillos...)
       if (/^\d+$/.test(primera)) {
-        return {
-          cantidad: parseInt(primera, 10),
-          descripcion: palabras.slice(1).join(" ").trim()
-        };
+        cantidad = parseInt(primera, 10);
+        descripcion = palabras.slice(1).join(" ").trim();
+      }
+      // Caso 2: empieza con número en palabras (cinco tornillos...)
+      else if (primera in NUMEROS_TEXTO) {
+        cantidad = NUMEROS_TEXTO[primera];
+        descripcion = palabras.slice(1).join(" ").trim();
       }
 
-      if (primera in NUMEROS_TEXTO) {
-        return {
-          cantidad: NUMEROS_TEXTO[primera],
-          descripcion: palabras.slice(1).join(" ").trim()
-        };
-      }
+      // Limpiamos la descripción (triple a, metros, cm, etc.)
+      descripcion = limpiarDescripcion(descripcion);
 
       return {
-        cantidad: 1,
-        descripcion: texto.trim()
+        cantidad: cantidad,
+        descripcion: descripcion
       };
     }
 
@@ -384,53 +419,6 @@
       }
     });
 
-    // BOTÓN CHATGPT
-    document.getElementById("btnChatGPT").addEventListener("click", async () => {
-      if (!estado.id) {
-        alert("Primero tienes que decir el número de cliente");
-        return;
-      }
-      if (estado.lista.length === 0) {
-        alert("No hay artículos en el pedido");
-        return;
-      }
-
-      const pedidoCrudo = generarTextoPedido();
-
-      const mensajeParaChatGPT = `Limpia y corrige este pedido de ferretería. 
-Devuelve SOLO el pedido limpio, sin explicaciones, en este formato:
-
-Pedido [número] [nombre cliente]
-[nombre libre]
-
-[cantidad] [descripción corregida]
-[cantidad] [descripción corregida]
-...
-
-Corrige errores de voz (ejemplo: "pilas triple a" → "Pilas AAA", "tornillos del ocho" → "tornillos del 8").
-
-Pedido original:
-${pedidoCrudo}`;
-
-      try {
-        await navigator.clipboard.writeText(mensajeParaChatGPT);
-        document.getElementById("estado").textContent = "✅ Texto copiado. Abriendo ChatGPT...";
-        
-        // Intenta abrir la app de ChatGPT
-        window.location.href = "chatgpt://";
-        
-        // Si no tiene la app, después de un momento abrimos la web
-        setTimeout(() => {
-          window.open("https://chatgpt.com", "_blank");
-        }, 800);
-
-      } catch (err) {
-        // Si falla el portapapeles, mostramos el texto para que lo copie manualmente
-        prompt("Copia este texto y pégalo en ChatGPT:", mensajeParaChatGPT);
-      }
-    });
-
-    // BOTÓN WHATSAPP
     document.getElementById("btnEnviar").addEventListener("click", () => {
       if (!estado.id) {
         alert("Primero tienes que decir el número de cliente");
@@ -446,7 +434,6 @@ ${pedidoCrudo}`;
       window.open(url, "_blank");
     });
 
-    // BOTÓN REINICIAR
     document.getElementById("btnReiniciar").addEventListener("click", () => {
       estado = {
         id: null,
