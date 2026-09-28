@@ -156,12 +156,12 @@
     const SUPABASE_URL = "https://arthqcpqbmsjdhvubwwm.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFydGhxY3BxYm1zamRodnVid3dtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2MDg3MjcsImV4cCI6MjEwNjE4NDcyN30.D3lklXpb6ueY_TsXBlTJcuVqJx-cJtqVtv1n1leESAA";
 
-    let supabase = null;
+    let supabaseClient = null;
     try {
       if (!window.supabase) {
         throw new Error("La librería de Supabase no cargó (revisa tu conexión o un bloqueador de contenido en Safari).");
       }
-      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     } catch (err) {
       mostrarError(err.message);
     }
@@ -214,11 +214,11 @@
     // BUSCAR CLIENTE EN SUPABASE
     // ======================
     async function buscarCliente(codigo) {
-      if (!supabase) {
+      if (!supabaseClient) {
         mostrarError("Supabase no está disponible, no se puede buscar el cliente.");
         return null;
       }
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient
         .from("clientes")
         .select("etiqueta")
         .eq("codigo", codigo)
