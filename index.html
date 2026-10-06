@@ -43,6 +43,16 @@
       font-size: 1.05rem;
     }
     .item:last-child { border-bottom: none; }
+    .editar {
+      background: #e5e7eb;
+      color: #222;
+      border: none;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      margin-right: 6px;
+    }
     .borrar {
       background: #ef4444;
       color: white;
@@ -85,11 +95,19 @@
       text-align: center;
       font-size: 0.95rem;
       color: #666;
-      margin: 8px 0 12px;
+      margin: 8px 0 4px;
     }
     .estado.error {
       color: #dc2626;
       font-weight: 600;
+    }
+    .interim {
+      text-align: center;
+      font-size: 0.85rem;
+      color: #2563eb;
+      font-style: italic;
+      min-height: 1.2em;
+      margin-bottom: 8px;
     }
     @keyframes pulse {
       0% { opacity: 1; }
@@ -120,6 +138,7 @@
   </div>
 
   <div class="estado" id="estado">Pulsa "Empezar a escuchar"</div>
+  <div class="interim" id="interim"></div>
 
   <div class="botones">
     <button id="btnEscuchar">🎤 Empezar a escuchar</button>
@@ -147,6 +166,28 @@
     window.addEventListener("unhandledrejection", (e) => {
       mostrarError(e.reason && e.reason.message ? e.reason.message : String(e.reason));
     });
+
+    // ======================
+    // SONIDO DE CONFIRMACIÓN (pitido corto, no hace falta mirar la pantalla)
+    // ======================
+    let audioCtx = null;
+    function reproducirBeep() {
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.frequency.value = 880;
+        gain.gain.value = 0.2;
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.12);
+      } catch (e) {
+        // si el audio falla, no pasa nada, seguimos sin sonido
+      }
+    }
 
     // ======================
     // CONFIGURACIÓN SUPABASE
@@ -185,20 +226,40 @@
     if (SpeechRecognition) {
       recognition = new SpeechRecognition();
       recognition.lang = "es-ES";
-      recognition.continuous = false;
-      recognition.interimResults = false;
+      // continuous = true: NO se para después de cada frase, se queda escuchando.
+      // Esto evita el hueco de "reiniciar el micro" que hacía perder palabras
+      // y obligaba a repetir.
+      recognition.continuous = true;
+      recognition.interimResults = true;
 
       recognition.onresult = (event) => {
-        const texto = event.results[0][0].transcript.trim();
-        console.log("Oído:", texto);
-        procesarTexto(texto);
+        let textoProvisional = "";
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const resultado = event.results[i];
+          const texto = resultado[0].transcript.trim();
+
+          if (resultado.isFinal) {
+            console.log("Oído:", texto);
+            document.getElementById("interim").textContent = "";
+            procesarTexto(texto);
+          } else {
+            textoProvisional = texto;
+          }
+        }
+
+        if (textoProvisional) {
+          document.getElementById("interim").textContent = "Escuchando: " + textoProvisional;
+        }
       };
 
       recognition.onend = () => {
+        document.getElementById("interim").textContent = "";
+        // Aunque sea continuo, el navegador a veces corta la sesión solo
+        // (silencio largo, límite de tiempo). Si seguimos en modo escucha,
+        // reiniciamos al instante, sin esperar.
         if (escuchando) {
-          setTimeout(() => {
-            try { recognition.start(); } catch(e) {}
-          }, 300);
+          try { recognition.start(); } catch (e) { /* ya estaba iniciado */ }
         }
       };
 
@@ -206,6 +267,9 @@
         console.error("Error de voz:", e.error);
         if (e.error === "not-allowed") {
           mostrarError("Permiso de micrófono denegado");
+        } else if (e.error === "no-speech") {
+          // No se detectó voz en un momento puntual: no es un error real,
+          // el reconocimiento seguirá escuchando (lo gestiona onend).
         } else {
           document.getElementById("estado").textContent = "Error micrófono: " + e.error;
         }
@@ -245,6 +309,7 @@
             estado.nombre = nombre;
             estado.fase = "nombre";
             actualizarPantalla();
+            reproducirBeep();
             document.getElementById("estado").textContent = "Número encontrado. Ahora di el nombre del cliente.";
           } else {
             document.getElementById("estado").textContent = `No existe el cliente ${codigo}. Di otro número.`;
@@ -257,12 +322,14 @@
         estado.nombreLibre = texto;
         estado.fase = "articulos";
         actualizarPantalla();
+        reproducirBeep();
         document.getElementById("estado").textContent = "Nombre guardado. Ya puedes dictar los artículos.";
       }
       else if (estado.fase === "articulos") {
         const item = parsearArticulo(texto);
         estado.lista.push(item);
         actualizarPantalla();
+        reproducirBeep();
         document.getElementById("estado").textContent = "Artículo añadido. Sigue dictando o envía.";
       }
     }
@@ -295,20 +362,17 @@
       desc = desc.replace(/\bdoble\s*aa\b/gi, "AA");
 
       // --- Convertir metros a milímetros ---
-      // Ejemplos: "2 metros", "2,5 metros", "2.5 m", "2 metros de cable"
       desc = desc.replace(/(\d+[.,]?\d*)\s*(metros?|m)\b/gi, (match, num) => {
         const valor = parseFloat(num.replace(",", "."));
         return (valor * 1000) + " mm";
       });
 
       // --- Convertir centímetros a milímetros ---
-      // Ejemplos: "50 cm", "50 centímetros", "12,5 cm"
       desc = desc.replace(/(\d+[.,]?\d*)\s*(centímetros?|centimetros?|cm)\b/gi, (match, num) => {
         const valor = parseFloat(num.replace(",", "."));
         return (valor * 10) + " mm";
       });
 
-      // Poner en mayúscula la primera letra
       if (desc.length > 0) {
         desc = desc.charAt(0).toUpperCase() + desc.slice(1);
       }
@@ -326,18 +390,15 @@
       let cantidad = 1;
       let descripcion = texto.trim();
 
-      // Caso 1: empieza con número (5 tornillos...)
       if (/^\d+$/.test(primera)) {
         cantidad = parseInt(primera, 10);
         descripcion = palabras.slice(1).join(" ").trim();
       }
-      // Caso 2: empieza con número en palabras (cinco tornillos...)
       else if (primera in NUMEROS_TEXTO) {
         cantidad = NUMEROS_TEXTO[primera];
         descripcion = palabras.slice(1).join(" ").trim();
       }
 
-      // Limpiamos la descripción (triple a, metros, cm, etc.)
       descripcion = limpiarDescripcion(descripcion);
 
       return {
@@ -367,7 +428,10 @@
         listaDiv.innerHTML = estado.lista.map((item, i) => `
           <div class="item">
             <span>${item.cantidad} ${item.descripcion}</span>
-            <button class="borrar" onclick="borrarItem(${i})">✕</button>
+            <span>
+              <button class="editar" onclick="editarItem(${i})">✏️</button>
+              <button class="borrar" onclick="borrarItem(${i})">✕</button>
+            </span>
           </div>
         `).join("");
       }
@@ -378,11 +442,20 @@
       actualizarPantalla();
     }
 
+    function editarItem(index) {
+      const item = estado.lista[index];
+      const actual = `${item.cantidad} ${item.descripcion}`;
+      const nuevo = prompt("Edita el artículo (cantidad y descripción):", actual);
+      if (nuevo === null || nuevo.trim() === "") return;
+      estado.lista[index] = parsearArticulo(nuevo.trim());
+      actualizarPantalla();
+    }
+
     // ======================
     // GENERAR TEXTO DEL PEDIDO
     // ======================
     function generarTextoPedido() {
-      let texto = `PEDIDO ${estado.id || ""} ${estado.nombre || ""}\n`;
+      let texto = `PEDIDO ${estado.nombre || ""}\n`;
       texto += `${estado.nombreLibre || ""}\n\n`;
       texto += estado.lista.map(i => `${i.cantidad} ${i.descripcion}`).join("\n");
       return texto.trim();
@@ -404,6 +477,7 @@
         document.getElementById("btnEscuchar").classList.remove("escuchando");
         document.getElementById("estado").textContent = "Escucha detenida";
         document.getElementById("estado").classList.remove("error");
+        document.getElementById("interim").textContent = "";
       } else {
         escuchando = true;
         try {
@@ -445,6 +519,7 @@
       actualizarPantalla();
       document.getElementById("estado").textContent = "Pedido reiniciado. Di el número de cliente.";
       document.getElementById("estado").classList.remove("error");
+      document.getElementById("interim").textContent = "";
     });
 
     // Inicial
